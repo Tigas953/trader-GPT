@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+
+# Logs e dados reais
+logs/*.log
+logs/data/*.csv
+
+# Capturas temporárias
+capture/tmp/
+capture/screenshots/
+
+# Configuração local
+config/runtime_config.py
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db
