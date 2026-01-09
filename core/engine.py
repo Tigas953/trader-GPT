@@ -2,9 +2,7 @@
 
 from core.state_manager import (
     StateManager,
-    SystemMode,
-    IAState,
-    TradeState,
+    InvalidStateTransition,
 )
 
 
@@ -14,134 +12,79 @@ class Engine:
     Nenhuma ação operacional acontece fora dela.
     """
 
-    def __init__(self, state_manager: StateManager):
+    def __init__(self, state_manager: StateManager, timer):
         self._state = state_manager
+        self._timer = timer
 
     # =====================================================
-    # LEITURA DE ESTADO (PROXY SEGURO)
+    # LEITURA DE ESTADO (SOMENTE LEITURA)
     # =====================================================
 
-    def get_system_mode(self):
-        return self._state.system_mode
-
-    def get_ia_state(self):
-        return self._state.ia_state
-
-    def get_trade_state(self):
-        return self._state.trade_state
-
-    def is_system_on(self) -> bool:
-        return self._state.system_on
-
-    # =====================================================
-    # VALIDAÇÕES DE EXECUÇÃO (PROMPTS)
-    # =====================================================
-
-    def can_run_pre_trade(self) -> bool:
+    def get_state_snapshot(self) -> dict:
         """
-        Pré-trade só pode rodar se:
-        - Sistema ligado
-        - Nenhum trade ativo
-        - IA não estiver bloqueada
+        Fotografia imutável do estado atual do sistema.
+        Usado por UI, logs e debug.
         """
-        return (
-            self._state.system_on
-            and self._state.trade_state == TradeState.INEXISTENTE
-            and self._state.ia_state in [
-                IAState.OCIOSA_MANUAL,
-                IAState.OCIOSA_AUTOMATICA,
-            ]
-        )
-
-    def can_run_gestao(self) -> bool:
-        """
-        Gestão de posição só pode rodar se:
-        - Sistema ligado
-        - Trade ABERTO
-        - Solicitação manual (Engine apenas valida contexto)
-        """
-        return (
-            self._state.system_on
-            and self._state.trade_state == TradeState.ABERTO
-            and self._state.ia_state != IAState.BLOQUEADA
-        )
-
-    def can_run_pos_trade(self) -> bool:
-        """
-        Pós-trade só pode rodar se:
-        - Sistema ligado
-        - Trade ENCERRADO
-        """
-        return (
-            self._state.system_on
-            and self._state.trade_state == TradeState.ENCERRADO
-        )
+        return {
+            "system_on": self._state.is_system_on(),
+            "system_mode": self._state.get_system_mode().name,
+            "ia_state": self._state.get_ia_state().name,
+            "trade_state": self._state.get_trade_state().name,
+        }
 
     # =====================================================
     # EVENTOS DE SISTEMA
     # =====================================================
 
     def ligar_sistema(self):
-        if self._state.system_on:
+        if self._state.is_system_on():
             return
-
-        self._state.turn_system_on()
+        self._state.power_on()
 
     def desligar_sistema(self):
-        if not self._state.system_on:
+        if not self._state.is_system_on():
             return
+        self._state.power_off()
 
-        self._state.turn_system_off()
+    # =====================================================
+    # EVENTOS DE IA — ANÁLISES
+    # =====================================================
+
+    def iniciar_pre_trade(self):
+        if not self._timer.can_execute():
+            raise RuntimeError("Cooldown ativo.")
+
+        self._state.start_pre_trade()
+        self._timer.mark_execution_start()
+
+    def iniciar_gestao_posicao(self):
+        if not self._timer.can_execute():
+            raise RuntimeError("Cooldown ativo.")
+
+        self._state.start_gestao_posicao()
+        self._timer.mark_execution_start()
+
+    def iniciar_pos_trade(self):
+        if not self._timer.can_execute():
+            raise RuntimeError("Cooldown ativo.")
+
+        self._state.start_pos_trade()
+        self._timer.mark_execution_start()
+
+    def finalizar_analise(self):
+        self._state.finish_analysis()
+        self._timer.mark_execution_end()
 
     # =====================================================
     # EVENTOS DE TRADE
     # =====================================================
 
     def abrir_trade(self):
-        """
-        Chamado quando o usuário executa uma entrada manual.
-        """
-        if self._state.trade_state != TradeState.INEXISTENTE:
-            raise RuntimeError("Trade já está ativo ou em estado inválido.")
-
-        self._state.set_trade_state(TradeState.ABERTO)
-        self._state.set_ia_state(IAState.GESTAO_POSICAO)
+        self._state.open_trade()
 
     def encerrar_trade(self):
-        """
-        Chamado quando o usuário encerra a posição.
-        """
-        if self._state.trade_state != TradeState.ABERTO:
-            raise RuntimeError("Não existe trade aberto para encerrar.")
-
-        self._state.set_trade_state(TradeState.ENCERRADO)
-        self._state.set_ia_state(IAState.POS_TRADE)
+        self._state.close_trade()
 
     def concluir_pos_trade(self):
-        """
-        Chamado após a análise pós-trade ser finalizada.
-        """
-        if self._state.trade_state != TradeState.ENCERRADO:
-            raise RuntimeError("Trade não está encerrado.")
-
-        self._state.set_trade_state(TradeState.ANALISADO)
-        self._state.reset_ia_to_idle()
-
-    # =====================================================
-    # EVENTOS DE IA (CONTROLE DE ESTADO)
-    # =====================================================
-
-    def iniciar_analise(self):
-        """
-        Usado antes de chamar QUALQUER IA.
-        """
-        if self._state.ia_state == IAState.ANALISANDO:
-            raise RuntimeError("IA já está analisando.")
-
-        self._state.set_ia_state(IAState.ANALISANDO)
-
-    def finalizar_analise(self):
-        """
-        Usado após a IA terminar.
-        """
-        self._state.reset_ia_to_idle()
+        self._state.mark_trade_analyzed()
+        self._state.reset_trade()
