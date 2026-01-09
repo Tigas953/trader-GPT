@@ -1,12 +1,18 @@
 # core/timer.py
 
 import time
+from threading import Lock
 
 
 class ExecutionTimer:
     """
     Timer central de execução.
-    Controla cooldown, concorrência e pausas automáticas.
+
+    Responsabilidades:
+    - Impedir execuções concorrentes
+    - Controlar cooldown entre análises
+    - Permitir pausa operacional (ex: trade aberto, observação)
+    - Expor estado somente leitura
     """
 
     def __init__(self, cooldown_seconds: int):
@@ -14,9 +20,10 @@ class ExecutionTimer:
         self._last_execution_ts: float | None = None
         self._running: bool = False
         self._paused: bool = False
+        self._lock = Lock()
 
     # =====================================================
-    # CONTROLE DE EXECUÇÃO
+    # CONSULTAS (READ-ONLY)
     # =====================================================
 
     def can_execute(self) -> bool:
@@ -32,30 +39,53 @@ class ExecutionTimer:
         if self._last_execution_ts is None:
             return True
 
+        return (time.time() - self._last_execution_ts) >= self._cooldown
+
+    def is_running(self) -> bool:
+        return self._running
+
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def remaining_cooldown(self) -> float:
+        """
+        Retorna segundos restantes de cooldown (0 se liberado).
+        """
+        if self._last_execution_ts is None:
+            return 0.0
+
         elapsed = time.time() - self._last_execution_ts
-        return elapsed >= self._cooldown
+        return max(0.0, self._cooldown - elapsed)
+
+    # =====================================================
+    # CONTROLE DE EXECUÇÃO (ATÔMICO)
+    # =====================================================
 
     def start_execution(self):
         """
-        Marca o início de uma execução.
+        Marca início de execução.
+        Deve ser chamado IMEDIATAMENTE antes da IA.
         """
-        if not self.can_execute():
-            raise RuntimeError("Execução não permitida pelo Timer.")
+        with self._lock:
+            if not self.can_execute():
+                raise RuntimeError("Execução não permitida pelo Timer.")
 
-        self._running = True
+            self._running = True
 
     def finish_execution(self):
         """
-        Marca o fim de uma execução.
+        Marca fim de execução.
+        Deve ser chamado SEMPRE em bloco finally.
         """
-        if not self._running:
-            return
+        with self._lock:
+            if not self._running:
+                return
 
-        self._running = False
-        self._last_execution_ts = time.time()
+            self._running = False
+            self._last_execution_ts = time.time()
 
     # =====================================================
-    # PAUSA AUTOMÁTICA
+    # PAUSA OPERACIONAL
     # =====================================================
 
     def pause(self):
@@ -69,35 +99,3 @@ class ExecutionTimer:
         Retoma o timer.
         """
         self._paused = False
-
-    # =====================================================
-    # MÉTODOS DE LEITURA (READ-ONLY)
-    # =====================================================
-
-    @property
-    def is_running(self) -> bool:
-        return self._running
-
-    @property
-    def is_paused(self) -> bool:
-        return self._paused
-
-    @property
-    def cooldown_seconds(self) -> int:
-        return self._cooldown
-
-    @property
-    def last_execution_time(self) -> float | None:
-        return self._last_execution_ts
-
-    def seconds_until_next_execution(self) -> int | None:
-        """
-        Retorna segundos restantes para próxima execução ou None se liberado.
-        """
-        if self._last_execution_ts is None:
-            return None
-
-        elapsed = time.time() - self._last_execution_ts
-        remaining = self._cooldown - elapsed
-
-        return max(0, int(remaining))
