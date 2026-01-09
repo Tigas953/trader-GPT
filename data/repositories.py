@@ -2,17 +2,29 @@
 
 import csv
 import os
-from datetime import datetime
-from typing import Any
 from pathlib import Path
+from typing import Any
 
+from data.models import Trade, PreTradeAnalysis
+
+
+# =====================================================
+# CONFIGURAÇÃO BASE
+# =====================================================
 
 BASE_LOG_PATH = Path("logs/data")
 
 
-class CSVRepository:
+# =====================================================
+# REPOSITÓRIO BASE (CSV — APPEND ONLY)
+# =====================================================
+
+class BaseCSVRepository:
     """
-    Repositório base para escrita em CSV (append-only).
+    Repositório base para escrita em CSV.
+    - Escrita somente em modo append
+    - Header garantido
+    - Validação de campos obrigatórios
     """
 
     def __init__(self, filename: str, fieldnames: list[str]):
@@ -20,77 +32,84 @@ class CSVRepository:
         self.fieldnames = fieldnames
         self._ensure_file()
 
-    def _ensure_file(self):
+    def _ensure_file(self) -> None:
         os.makedirs(self.filepath.parent, exist_ok=True)
+
         if not self.filepath.exists():
-            with open(self.filepath, mode="w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+            with open(self.filepath, mode="w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=self.fieldnames)
                 writer.writeheader()
 
-    def append(self, data: dict[str, Any]):
+    def append(self, data: dict[str, Any]) -> None:
         self._validate(data)
-        with open(self.filepath, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+
+        with open(self.filepath, mode="a", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=self.fieldnames)
             writer.writerow(data)
 
-    def _validate(self, data: dict[str, Any]):
-        missing = set(self.fieldnames) - set(data.keys())
-        if missing:
-            raise ValueError(f"Campos ausentes no registro: {missing}")
+    def _validate(self, data: dict[str, Any]) -> None:
+        missing_fields = set(self.fieldnames) - set(data.keys())
+
+        if missing_fields:
+            raise ValueError(
+                f"Campos ausentes no registro CSV: {missing_fields}"
+            )
 
 
 # =====================================================
-# REPOSITÓRIOS CONCRETOS
+# REPOSITÓRIO DE TRADES
 # =====================================================
 
-trade_repo = CSVRepository(
-    filename="trades.csv",
-    fieldnames=[
-        "trade_id",
-        "tipo",
-        "preco_entrada",
-        "preco_saida",
-        "pnl",
-        "timestamp_abertura",
-        "timestamp_fechamento",
-    ],
-)
+class TradeRepository(BaseCSVRepository):
+    """
+    Persistência de trades executados pelo trader.
+    """
 
-pre_trade_repo = CSVRepository(
-    filename="ia_decisions.csv",
-    fieldnames=[
-        "analysis_id",
-        "vies",
-        "confianca",
-        "justificativa",
-        "preco_atual",
-        "timestamp",
-    ],
-)
+    def __init__(self):
+        super().__init__(
+            filename="trades.csv",
+            fieldnames=[
+                "trade_id",
+                "tipo",
+                "preco_entrada",
+                "preco_saida",
+                "pnl",
+                "timestamp_abertura",
+                "timestamp_fechamento",
+            ],
+        )
 
-gestao_repo = CSVRepository(
-    filename="ia_gestao.csv",
-    fieldnames=[
-        "trade_id",
-        "decisao",
-        "confianca",
-        "justificativa",
-        "pnl_momento",
-        "timestamp",
-    ],
-)
+    def save(self, trade: Trade) -> None:
+        if not isinstance(trade, Trade):
+            raise TypeError("Objeto inválido para TradeRepository")
 
-pos_trade_repo = CSVRepository(
-    filename="pos_trade.csv",
-    fieldnames=[
-        "trade_id",
-        "avaliacao",
-        "score_disciplina",
-        "alinhamento_gpt",
-        "erro_identificado",
-        "erro_recorrente",
-        "diagnostico",
-        "sugestao",
-        "timestamp",
-    ],
-)
+        self.append(trade.to_dict())
+
+
+# =====================================================
+# REPOSITÓRIO DE ANÁLISE PRÉ-TRADE
+# =====================================================
+
+class PreTradeRepository(BaseCSVRepository):
+    """
+    Persistência das análises pré-trade geradas pela IA.
+    """
+
+    def __init__(self):
+        super().__init__(
+            filename="ia_decisions.csv",
+            fieldnames=[
+                "analysis_id",
+                "vies",
+                "confianca",
+                "justificativa",
+                "preco_atual",
+                "timestamp",
+            ],
+        )
+
+    def save(self, analysis: PreTradeAnalysis) -> None:
+        if not isinstance(analysis, PreTradeAnalysis):
+            raise TypeError("Objeto inválido para PreTradeRepository")
+
+        self.append(analysis.to_dict())
