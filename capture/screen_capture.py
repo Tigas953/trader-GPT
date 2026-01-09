@@ -11,9 +11,21 @@ CAPTURE_DIR = Path("capture/screenshots")
 
 def capture_screen(region: ScreenRegion) -> Path:
     """
-    Captura imagem da região informada e salva em disco.
-    Retorna o caminho da imagem.
+    Captura uma imagem da região informada e salva em disco.
+
+    Parâmetros:
+        region (ScreenRegion): região da tela a ser capturada
+
+    Retorna:
+        Path: caminho do arquivo de imagem salvo
+
+    Exceções:
+        ValueError: se a região for inválida
+        RuntimeError: se a captura falhar
     """
+    if region.width <= 0 or region.height <= 0:
+        raise ValueError("Região de captura inválida")
+
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -26,7 +38,7 @@ def capture_screen(region: ScreenRegion) -> Path:
             region.x + region.width,
             region.y + region.height,
         )
-    )
+    ).convert("RGB")
 
     image.save(filename)
 

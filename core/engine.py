@@ -1,15 +1,13 @@
 # core/engine.py
 
-from core.state_manager import (
-    StateManager,
-    InvalidStateTransition,
-)
+from core.state_manager import StateManager, InvalidStateTransition
 
 
 class Engine:
     """
     Engine é o cérebro do sistema.
     Nenhuma ação operacional acontece fora dela.
+    Ela NÃO executa IA, apenas autoriza ou bloqueia.
     """
 
     def __init__(self, state_manager: StateManager, timer):
@@ -30,6 +28,7 @@ class Engine:
             "system_mode": self._state.get_system_mode().name,
             "ia_state": self._state.get_ia_state().name,
             "trade_state": self._state.get_trade_state().name,
+            "cooldown_ok": self._timer.can_execute(),
         }
 
     # =====================================================
@@ -47,35 +46,6 @@ class Engine:
         self._state.power_off()
 
     # =====================================================
-    # EVENTOS DE IA — ANÁLISES
-    # =====================================================
-
-    def iniciar_pre_trade(self):
-        if not self._timer.can_execute():
-            raise RuntimeError("Cooldown ativo.")
-
-        self._state.start_pre_trade()
-        self._timer.mark_execution_start()
-
-    def iniciar_gestao_posicao(self):
-        if not self._timer.can_execute():
-            raise RuntimeError("Cooldown ativo.")
-
-        self._state.start_gestao_posicao()
-        self._timer.mark_execution_start()
-
-    def iniciar_pos_trade(self):
-        if not self._timer.can_execute():
-            raise RuntimeError("Cooldown ativo.")
-
-        self._state.start_pos_trade()
-        self._timer.mark_execution_start()
-
-    def finalizar_analise(self):
-        self._state.finish_analysis()
-        self._timer.mark_execution_end()
-
-    # =====================================================
     # EVENTOS DE TRADE
     # =====================================================
 
@@ -88,3 +58,32 @@ class Engine:
     def concluir_pos_trade(self):
         self._state.mark_trade_analyzed()
         self._state.reset_trade()
+
+    # =====================================================
+    # AUTORIZAÇÃO DE IA (SEM EXECUTAR IA)
+    # =====================================================
+
+    def authorize_pre_trade(self):
+        if not self._timer.can_execute():
+            raise RuntimeError("Cooldown ativo.")
+        self._state.start_pre_trade()
+        self._timer.mark_execution_start()
+
+    def authorize_gestao_posicao(self):
+        if not self._timer.can_execute():
+            raise RuntimeError("Cooldown ativo.")
+        self._state.start_gestao_posicao()
+        self._timer.mark_execution_start()
+
+    def authorize_pos_trade(self):
+        if not self._timer.can_execute():
+            raise RuntimeError("Cooldown ativo.")
+        self._state.start_pos_trade()
+        self._timer.mark_execution_start()
+
+    def finalizar_analise(self):
+        """
+        Deve ser chamado SEMPRE após a IA terminar.
+        """
+        self._state.finish_analysis()
+        self._timer.mark_execution_end()

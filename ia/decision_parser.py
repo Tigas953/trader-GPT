@@ -1,54 +1,125 @@
 # ia/decision_parser.py
 
 from dataclasses import dataclass
-import re
+from typing import Optional
+
+
+# =====================================================
+# EXCEÇÃO DE PARSE
+# =====================================================
+
+class InvalidIAResponse(Exception):
+    """Resposta da IA inválida ou fora do contrato esperado."""
+    pass
+
+
+# =====================================================
+# MODELOS DE DECISÃO
+# =====================================================
+
+@dataclass(frozen=True)
+class PreTradeDecision:
+    vies: str               # COMPRA | VENDA | NEUTRO
+    confianca: int          # 0-100
+    justificativa: str
 
 
 @dataclass(frozen=True)
-class IADecision:
-    action: str
-    confidence: int
-    raw_text: str
+class GestaoDecision:
+    acao: str               # AUMENTAR | PERMANECER | REDUZIR | ZERAR | INVERTER
+    confianca: int
+    justificativa: str
 
 
-VALID_ACTIONS = {
-    "COMPRA",
-    "VENDA",
-    "NEUTRO",
-    "AUMENTAR",
-    "PERMANECER",
-    "REDUZIR",
-    "ZERAR",
-    "INVERTER",
-    "BOM",
-    "RUIM",
-    "NEUTRO",
-}
+@dataclass(frozen=True)
+class PosTradeDecision:
+    avaliacao: str          # BOM | RUIM | NEUTRO
+    score_disciplina: int   # 0-100
+    erro_identificado: str
+    sugestao: str
 
 
-def parse_decision(text: str) -> IADecision:
+# =====================================================
+# PARSER CENTRAL
+# =====================================================
+
+class DecisionParser:
     """
-    Valida e extrai decisão da resposta da IA.
+    Parser responsável por validar e estruturar respostas da IA.
     """
-    action_match = re.search(r"(COMPRA|VENDA|NEUTRO|AUMENTAR|PERMANECER|REDUZIR|ZERAR|INVERTER|BOM|RUIM)", text)
-    confidence_match = re.search(r"(\d{1,3})", text)
 
-    if not action_match:
-        raise ValueError("Resposta IA sem ação válida")
+    @staticmethod
+    def _validate_confidence(value: int):
+        if not isinstance(value, int) or not (0 <= value <= 100):
+            raise InvalidIAResponse("Confiança fora do intervalo 0–100")
 
-    action = action_match.group(1)
+    @staticmethod
+    def parse_pre_trade(response: dict) -> PreTradeDecision:
+        try:
+            vies = response["vies"]
+            confianca = int(response["confianca"])
+            justificativa = response["justificativa"]
 
-    if action not in VALID_ACTIONS:
-        raise ValueError("Ação IA fora do conjunto permitido")
+            if vies not in {"COMPRA", "VENDA", "NEUTRO"}:
+                raise InvalidIAResponse("Viés inválido")
 
-    confidence = None
-    if confidence_match:
-        confidence = int(confidence_match.group(1))
-        if confidence < 0 or confidence > 100:
-            raise ValueError("Confiança fora do intervalo 0–100")
+            DecisionParser._validate_confidence(confianca)
 
-    return IADecision(
-        action=action,
-        confidence=confidence if confidence is not None else 0,
-        raw_text=text
-    )
+            return PreTradeDecision(
+                vies=vies,
+                confianca=confianca,
+                justificativa=justificativa.strip(),
+            )
+
+        except KeyError as e:
+            raise InvalidIAResponse(f"Campo ausente: {e}")
+
+    @staticmethod
+    def parse_gestao(response: dict) -> GestaoDecision:
+        try:
+            acao = response["acao"]
+            confianca = int(response["confianca"])
+            justificativa = response["justificativa"]
+
+            if acao not in {
+                "AUMENTAR",
+                "PERMANECER",
+                "REDUZIR",
+                "ZERAR",
+                "INVERTER",
+            }:
+                raise InvalidIAResponse("Ação de gestão inválida")
+
+            DecisionParser._validate_confidence(confianca)
+
+            return GestaoDecision(
+                acao=acao,
+                confianca=confianca,
+                justificativa=justificativa.strip(),
+            )
+
+        except KeyError as e:
+            raise InvalidIAResponse(f"Campo ausente: {e}")
+
+    @staticmethod
+    def parse_pos_trade(response: dict) -> PosTradeDecision:
+        try:
+            avaliacao = response["avaliacao"]
+            score = int(response["score_disciplina"])
+            erro = response["erro_identificado"]
+            sugestao = response["sugestao"]
+
+            if avaliacao not in {"BOM", "RUIM", "NEUTRO"}:
+                raise InvalidIAResponse("Avaliação inválida")
+
+            DecisionParser._validate_confidence(score)
+
+            return PosTradeDecision(
+                avaliacao=avaliacao,
+                score_disciplina=score,
+                erro_identificado=erro.strip(),
+                sugestao=sugestao.strip(),
+            )
+
+        except KeyError as e:
+            raise InvalidIAResponse(f"Campo ausente: {e}")

@@ -1,3 +1,5 @@
+from tkinter import ttk
+
 class SistemaTab:
     def __init__(self, parent, engine):
         self.engine = engine
